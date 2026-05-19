@@ -9,10 +9,9 @@ namespace TicTacToeML.Core
     public class MatchSimulator
     {
         public event EventHandler<MoveMadeEventArgs> OnMoveMade;
-
         private readonly Random _random = new Random();
 
-        public int PlayVisualMatch(INeuralNetwork net1, PersonaType p1, INeuralNetwork net2, PersonaType p2, int delayMs)
+        public int PlayVisualMatch(INeuralNetwork net1, IPersonaStrategy s1, INeuralNetwork net2, IPersonaStrategy s2, int delayMs)
         {
             var env = new TicTacToeEnvironment();
             int result = -2;
@@ -20,12 +19,12 @@ namespace TicTacToeML.Core
             while (result == -2)
             {
                 INeuralNetwork currentNet = (env.CurrentPlayer == 1) ? net1 : net2;
-                PersonaType currentPersona = (env.CurrentPlayer == 1) ? p1 : p2;
+                IPersonaStrategy currentStrategy = (env.CurrentPlayer == 1) ? s1 : s2;
 
                 float[] state = env.GetStateForPlayer(env.CurrentPlayer);
                 float[] outputs = currentNet.Forward(state);
 
-                int action = GetActionForMatch(state, outputs, currentPersona);
+                int action = GetActionForMatch(state, outputs, currentStrategy);
 
                 if (action == -1) break;
 
@@ -37,11 +36,10 @@ namespace TicTacToeML.Core
 
                 result = env.CheckWinner();
             }
-
             return result;
         }
 
-        public int PlayHumanVsAIMatch(INeuralNetwork aiNet, PersonaType aiPersona, bool humanStarts, Func<float[], int> getHumanMove)
+        public int PlayHumanVsAIMatch(INeuralNetwork aiNet, IPersonaStrategy aiStrategy, bool humanStarts, Func<float[], int> getHumanMove)
         {
             var env = new TicTacToeEnvironment();
             int result = -2;
@@ -51,7 +49,6 @@ namespace TicTacToeML.Core
             while (result == -2)
             {
                 int activePlayer = env.CurrentPlayer;
-
                 bool isHumanTurn = (activePlayer == 1 && humanStarts) || (activePlayer == -1 && !humanStarts);
                 int action = -1;
 
@@ -63,7 +60,7 @@ namespace TicTacToeML.Core
                 {
                     float[] state = env.GetStateForPlayer(activePlayer);
                     float[] outputs = aiNet.Forward(state);
-                    action = GetActionForMatch(state, outputs, aiPersona);
+                    action = GetActionForMatch(state, outputs, aiStrategy);
                     Thread.Sleep(800);
                 }
 
@@ -71,30 +68,19 @@ namespace TicTacToeML.Core
 
                 env.MakeMove(action);
                 result = env.CheckWinner();
-
                 OnMoveMade?.Invoke(this, new MoveMadeEventArgs(env.Board, activePlayer, action));
             }
-
             return result;
         }
 
-        private int GetActionForMatch(float[] state, float[] outputs, PersonaType persona)
+        private int GetActionForMatch(float[] state, float[] outputs, IPersonaStrategy strategy)
         {
             List<int> validMoves = new List<int>();
             for (int i = 0; i < 9; i++) if (state[i] == 0f) validMoves.Add(i);
-
             if (validMoves.Count == 0) return -1;
 
-            foreach (int move in validMoves)
-                if (IsWinningMove(state, 1f, move)) return move;
-
-            if (persona == PersonaType.Survivor)
-            {
-                foreach (int move in validMoves)
-                    if (IsWinningMove(state, -1f, move)) return move;
-            }
-
-            if (persona == PersonaType.Rookie) return validMoves[_random.Next(validMoves.Count)];
+            int hardRuleMove = strategy.GetHardRuleMove(state, validMoves);
+            if (hardRuleMove != -1) return hardRuleMove;
 
             float maxQ = -float.MaxValue;
             for (int i = 0; i < 9; i++)
@@ -105,21 +91,6 @@ namespace TicTacToeML.Core
                 if (state[i] == 0f && outputs[i] >= maxQ - 0.05f) topTierMoves.Add(i);
 
             return topTierMoves[_random.Next(topTierMoves.Count)];
-        }
-
-        private bool IsWinningMove(float[] state, float targetPlayer, int action)
-        {
-            int[,] winLines = { { 0, 1, 2 }, { 3, 4, 5 }, { 6, 7, 8 }, { 0, 3, 6 }, { 1, 4, 7 }, { 2, 5, 8 }, { 0, 4, 8 }, { 2, 4, 6 } };
-            for (int i = 0; i < 8; i++)
-            {
-                int a = winLines[i, 0], b = winLines[i, 1], c = winLines[i, 2];
-                if (a == action || b == action || c == action)
-                {
-                    float sum = (a != action ? state[a] : 0) + (b != action ? state[b] : 0) + (c != action ? state[c] : 0);
-                    if (sum == targetPlayer * 2f) return true;
-                }
-            }
-            return false;
         }
     }
 }
